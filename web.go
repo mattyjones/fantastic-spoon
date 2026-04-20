@@ -78,7 +78,7 @@ func (h *webHandler) handleWebLookup(w http.ResponseWriter, r *http.Request) {
 
 	apiKey := strings.TrimSpace(os.Getenv(EnvISBNAPKey))
 	if apiKey == "" {
-		writeWebError(w, http.StatusBadRequest, "API key required: set environment variable "+EnvISBNAPKey+" for the server process (the web UI does not accept a key)", "")
+		writeWebError(w, http.StatusBadRequest, "API key MUST be set: set environment variable "+EnvISBNAPKey+" for the server process (the server MUST NOT read the key from the JSON body)", "")
 		return
 	}
 

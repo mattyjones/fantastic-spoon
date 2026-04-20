@@ -5,9 +5,11 @@ package main
 // (no key in the browser).
 const EnvISBNAPKey = "ISBN_AP_KEY"
 
-// Optional environment variables override values from .isbn_config.yml (when
-// present). CLI flags override both. Names use a FANTASTIC_SPOON_ prefix except
-// legacy ISBNDB_BOOKS_URL, which is accepted as an alias for the books URL.
+// These environment variables MAY override values from .isbn_config.yml when
+// set. CLI flags override both file and environment. Names use a FANTASTIC_SPOON_
+// prefix except legacy ISBNDB_BOOKS_URL, which is accepted as an alias for the books URL.
+//
+// Normative terms follow RFC 2119 (https://www.rfc-editor.org/rfc/rfc2119).
 const (
 	EnvInputFile       = "FANTASTIC_SPOON_INPUT"
 	EnvOutputFile      = "FANTASTIC_SPOON_OUTPUT"

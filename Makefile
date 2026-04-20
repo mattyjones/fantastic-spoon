@@ -8,8 +8,8 @@
 #   single binary for Apple Silicon (darwin/arm64).
 #
 # PREREQUISITES
-#   - Go toolchain on PATH (see go.mod for the required version).
-#   - Optional: golangci-lint on PATH for stricter linting (lint target skips
+#   - Go toolchain on PATH (see go.mod for the REQUIRED Go version).
+#   - OPTIONAL: golangci-lint on PATH for stricter linting (lint target skips
 #     it gracefully if missing).
 #
 # USAGE

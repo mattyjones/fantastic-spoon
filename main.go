@@ -2,8 +2,12 @@
 // in configurable batches with client-side rate limiting, and writes aggregated
 // results as JSON (metadata + book records).
 //
-// Production defaults target the ISBNdb HTTP API. Optional `.isbn_config.yml`,
-// environment variables (`env.go`), and CLI flags merge in that order (flags win).
+// Production defaults target the ISBNdb HTTP API. An OPTIONAL `.isbn_config.yml`,
+// environment variables (`env.go`), and CLI flags merge in that order; CLI flags
+// take precedence over file and environment values.
+//
+// Normative language in these comments uses the key words defined in RFC 2119
+// (https://www.rfc-editor.org/rfc/rfc2119); see README.md (Requirement terminology).
 package main
 
 import (
@@ -23,7 +27,7 @@ import (
 )
 
 // ISBNDBResponse is the JSON shape returned by the books lookup endpoint after
-// a successful HTTP200. The API may include additional fields inside each book
+// a successful HTTP200. The API MAY include additional fields inside each book
 // object; those are preserved by decoding into map[string]interface{}.
 //
 // Only Total and Books are declared here; unknown top-level keys are ignored
@@ -34,7 +38,7 @@ type ISBNDBResponse struct {
 }
 
 // Config holds runtime options for a single lookup run. The CLI fills this from
-// merged `.isbn_config.yml`, environment variables, and flags; tests may set
+// merged `.isbn_config.yml`, environment variables, and flags; tests MAY set
 // fields directly.
 type Config struct {
 	// APIKey is sent as the HTTP Authorization header on each batch request.
@@ -48,7 +52,7 @@ type Config struct {
 	// OutputFile is where the combined JSON document is written (0644 permissions).
 	OutputFile string
 
-	// BatchSize is how many ISBNs to send in one API request body. Must align
+	// BatchSize is how many ISBNs to send in one API request body. It SHOULD align
 	// with provider tier limits (e.g. 10 / 100 / 1000 for ISBNdb plans).
 	BatchSize int
 
@@ -57,7 +61,7 @@ type Config struct {
 	BooksURL string
 
 	// RateEvery is the minimum elapsed time between batch requests. Values <= 0
-	// are treated as one second inside run so callers cannot accidentally disable pacing.
+	// MUST be treated as one second in runLookup so pacing is never fully disabled.
 	RateEvery time.Duration
 
 	// CollectionFile, if set, is a JSON file of accumulated books (keyed by ISBN).
@@ -70,7 +74,7 @@ type Config struct {
 	BookURLTemplate string
 }
 
-// main loads optional .isbn_config.yml (see config.go), applies environment
+// main loads an OPTIONAL .isbn_config.yml (see config.go), applies environment
 // overrides, then parses CLI flags (which override file and env). Non-validation
 // failures use log.Fatal (exit code 1); usage errors print a message and help.
 func main() {
@@ -88,7 +92,7 @@ func main() {
 	listen := base.Listen
 
 	// --- Flags: I/O, credentials, batching, and overrides (defaults from file + env) ---
-	flag.StringVar(&config.InputFile, "input", config.InputFile, "Path to the line-separated ISBN file (required unless -web)")
+	flag.StringVar(&config.InputFile, "input", config.InputFile, "Path to the line-separated ISBN file (REQUIRED unless -web)")
 	flag.StringVar(&config.OutputFile, "output", config.OutputFile, "Output JSON file path")
 	flag.StringVar(&config.APIKey, "key", config.APIKey, "API key (or set "+EnvISBNAPKey+" in the environment)")
 	flag.IntVar(&config.BatchSize, "batch", config.BatchSize, "Batch size (Academic: 10, Basic: 100, Pro: 1000)")
@@ -111,7 +115,7 @@ func main() {
 	}
 
 	if config.InputFile == "" || config.APIKey == "" {
-		fmt.Println("Error: Input file and API Key are required.")
+		fmt.Println("Error: MUST specify input file and API key for CLI mode.")
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -124,7 +128,7 @@ func main() {
 // run reads ISBN lines from cfg.InputFile, runs the lookup pipeline, and writes JSON to cfg.OutputFile.
 func run(ctx context.Context, cfg Config, out io.Writer) error {
 	if cfg.InputFile == "" || cfg.APIKey == "" {
-		return fmt.Errorf("input file and API key are required")
+		return fmt.Errorf("MUST specify input file and API key for CLI mode")
 	}
 	data, err := os.ReadFile(cfg.InputFile)
 	if err != nil {
@@ -167,7 +171,7 @@ func run(ctx context.Context, cfg Config, out io.Writer) error {
 // If cfg.CollectionFile is set, merges into the collection and writes a status log.
 func runLookup(ctx context.Context, cfg Config, allISBNs []string, out io.Writer) (map[string]interface{}, error) {
 	if cfg.APIKey == "" {
-		return nil, fmt.Errorf("API key is required")
+		return nil, fmt.Errorf("API key MUST be set (non-empty)")
 	}
 	if cfg.BooksURL == "" {
 		cfg.BooksURL = "https://api2.isbndb.com/books"
@@ -298,8 +302,8 @@ func lookupBatch(client *http.Client, booksURL, apiKey string, isbns []string) (
 //   - Headers: Content-Type application/json; Authorization set to apiKey.
 //
 // Responses:
-//   - 200: body decoded as ISBNDBResponse; returned slice is result.Books (may be nil).
-//   - 429: returned error mentions rate limiting (caller may log and continue).
+//   - 200: body decoded as ISBNDBResponse; returned slice is result.Books (MAY be nil).
+//   - 429: returned error mentions rate limiting (caller MAY log and continue).
 //   - Other: error includes status code and response body snippet for debugging.
 //
 // Network and JSON decode errors are returned as-is or wrapped by the standard library.

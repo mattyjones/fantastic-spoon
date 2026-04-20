@@ -35,7 +35,7 @@ func TestWebIndexHasNoAPIKeyInBrowser(t *testing.T) {
 	if strings.Contains(strings.ToLower(s), "api_key") ||
 		strings.Contains(s, `type="password"`) ||
 		strings.Contains(s, `"api_key"`) {
-		t.Fatal("web UI must not collect or send api_key; use ISBN_AP_KEY on the server only")
+		t.Fatal("web UI MUST NOT collect or send api_key; use ISBN_AP_KEY on the server only")
 	}
 }
 
@@ -134,7 +134,7 @@ func TestHandleWebLookup_ignoresAPIKeyInJSONBody(t *testing.T) {
 	t.Setenv("ISBN_AP_KEY", "k")
 	t.Setenv("ISBNDB_BOOKS_URL", srv.URL+"/books")
 
-	// Spoofed api_key must not override env (decoder ignores unknown fields; server uses env only).
+	// Spoofed api_key MUST NOT override env (decoder ignores unknown fields; server uses env only).
 	payload := `{"isbns":"9781111111111","api_key":"wrong","batch_size":10,"rate_every_sec":1}`
 	req := httptest.NewRequest(http.MethodPost, "/api/lookup", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")

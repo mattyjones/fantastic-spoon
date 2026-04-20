@@ -4,6 +4,10 @@
 
 It is aimed at workflows where you already have ISBNs (exports from a catalog, spreadsheets, or other tools) and need **bulk bibliographic metadata** without writing ad hoc scripts for pagination, pacing, and output shaping.
 
+## Requirement terminology
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
+
 ## What it is for
 
 - Enriching or validating ISBN lists using an API that accepts **multi-ISBN** requests (the default contract matches **ISBNdb**’s books endpoint).
@@ -19,13 +23,13 @@ The program does not manage accounts, quotas, or API dashboards—it only perfor
 The core behavior is the same for both interfaces:
 
 1. **Input** — One ISBN per line (leading/trailing whitespace on the whole blob is trimmed before splitting).
-2. **Batching** — Split the list into chunks of size `-batch` / **Batch size** (aligned with typical provider tier limits, e.g. 10 / 100 / 1000).
-3. **Pacing** — Enforce a minimum interval between batch requests with a token bucket (`golang.org/x/time/rate`), so successive calls are spaced by at least `-rate-every` / **Seconds between batches** (default one second; zero or negative values are treated as one second in code).
+2. **Batching** — Split the list into chunks of size `-batch` / **Batch size** (SHOULD match your provider tier limits, e.g. 10 / 100 / 1000).
+3. **Pacing** — Enforce a minimum interval between batch requests with a token bucket (`golang.org/x/time/rate`), so successive calls are spaced by at least `-rate-every` / **Seconds between batches** (default one second; zero or negative values MUST be treated as one second in the implementation).
 4. **HTTP** — For each batch, send a **POST** with JSON body `{"isbns": "<comma-separated>"}` and `Authorization` set to your API key (ISBNdb-style: raw key string, not a `Bearer` prefix unless your provider expects that in the same header).
 5. **Resilience** — If a batch fails (network error, non-200, rate limit), the error is **logged** and that batch is **skipped**; other batches still run. The final JSON reflects **only successfully retrieved** books.
 6. **Output** — A document with `metadata` (e.g. `processed_at`, `total_found`) and a `books` array. Unknown fields inside each book object are preserved as generic JSON maps.
 
-### Collection mode (optional)
+### Collection mode (OPTIONAL)
 
 When **`-collection`** / **`collection_file`** is set:
 
@@ -40,7 +44,7 @@ When **`-collection`** / **`collection_file`** is set:
 
    The URL field is empty when status is `not_added`.
 
-4. Result JSON `metadata` may include `collection_added`, `collection_duplicates`, `collection_not_added`, and `status_log_path`.
+4. Result JSON `metadata` MAY include `collection_added`, `collection_duplicates`, `collection_not_added`, and `status_log_path`.
 
 ### Configuration sources (YAML, environment, CLI)
 
@@ -48,8 +52,8 @@ Settings are merged in this order (later steps override earlier ones):
 
 1. **Built-in defaults** (for example `results.json`, batch size `100`, `rate_every` one second, localhost web listen address).
 2. **`.isbn_config.yml`** — If this file exists, the program searches upward from the **current working directory** (the directory you pass to `os.Getwd()` when the process starts) through parent directories until it finds **`.isbn_config.yml`**, then loads it. If the file is **not** found anywhere on that path, configuration from YAML is skipped entirely (no error).
-3. **Environment variables** — Override values from the file when set (see tables below).
-4. **CLI flags** — Override everything else for a given run.
+3. **Environment variables** — Each variable that is set MUST override the corresponding value from the file (see tables below).
+4. **CLI flags** — Each flag that is passed MUST override the merged value from file and environment for that run.
 
 Relative paths in the YAML file (`input`, `output`, `collection`, `status_log`) are resolved against the **directory that contains** `.isbn_config.yml`, not necessarily the process working directory.
 
@@ -59,7 +63,7 @@ Relative paths in the YAML file (`input`, `output`, `collection`, `status_log`) 
 # Path to the newline-separated ISBN list (relative to this file’s directory)
 input: data/isbn_list.txt
 output: out/results.json
-api_key: your-api-key   # optional here if you prefer ISBN_AP_KEY in the environment
+api_key: your-api-key   # OPTIONAL here; you SHOULD prefer ISBN_AP_KEY in the environment
 batch: 100
 api_url: https://api2.isbndb.com/books
 rate_every: 1s
@@ -70,12 +74,12 @@ status_log: ""
 book_url_template: https://isbndb.com/book/%s
 ```
 
-Omit keys you do not need; boolean **`web`** defaults to `false` when absent. Prefer **`ISBN_AP_KEY`** instead of **`api_key`** in the file when sharing examples or version control, so secrets are not written to disk.
+Omit keys you do not need; boolean **`web`** defaults to `false` when absent. You SHOULD use **`ISBN_AP_KEY`** instead of **`api_key`** in the file when sharing examples or version control, so secrets are not written to disk.
 
 ### API key configuration
 
-- **CLI** — Pass **`-key`**, set **`api_key`** in `.isbn_config.yml`, and/or set **`ISBN_AP_KEY`** (see `EnvISBNAPKey` in `env.go`). The **`ISBN_AP_KEY`** environment variable overrides a key from YAML when both are set.
-- **Web UI** — The browser **never** sends or receives the API key. Only the server process may read **`ISBN_AP_KEY`** from the environment when you start `go run . -web` (or your built binary). There is no key field in the HTML or in the JSON request body. Batch size, rate, API URL, collection paths, and **`book_url_template`** still default from `.isbn_config.yml` and **`FANTASTIC_SPOON_*`** variables when the JSON request omits them.
+- **CLI** — Pass **`-key`**, set **`api_key`** in `.isbn_config.yml`, and/or set **`ISBN_AP_KEY`** (see `EnvISBNAPKey` in `env.go`). When both are set, **`ISBN_AP_KEY`** MUST override a key from YAML.
+- **Web UI** — The browser MUST NOT send or receive the API key. Only the server process MAY read **`ISBN_AP_KEY`** from the environment when you start `go run . -web` (or your built binary). There MUST NOT be a key field in the HTML or in the JSON request body. Batch size, rate, API URL, collection paths, and **`book_url_template`** still default from `.isbn_config.yml` and **`FANTASTIC_SPOON_*`** variables when the JSON request omits them.
 
 ### Code layout
 
@@ -88,7 +92,7 @@ Omit keys you do not need; boolean **`web`** defaults to `false` when absent. Pr
 | **`runLookup()`** | Shared implementation: batching, rate limiting, HTTP calls, and the in-memory result map used by both CLI and web. |
 | `collection.go` | Load/save collection JSON, per-ISBN status lines, URL resolution from API or template. |
 | `web.go` | Local HTTP server (`GET /`, `POST /api/lookup`), embeds the `web/` static assets via `embed.FS`. |
-| `web/index.html` | Single-page UI (ISBNs, file picker, API URL, optional collection paths on the server). |
+| `web/index.html` | Single-page UI (ISBNs, file picker, API URL, OPTIONAL collection paths on the server). |
 
 The **books URL** after merging config is: use the non-empty value from flags / YAML / env (`FANTASTIC_SPOON_API_URL` or legacy **`ISBNDB_BOOKS_URL`**), then default to `https://api2.isbndb.com/books`. For the **web UI**, the JSON field **`api_url`** (if non-empty) overrides; otherwise the handler uses the same merge result from server defaults (YAML + env + CLI for `-web` / `-listen` / shared fields).
 
@@ -108,7 +112,7 @@ The **books URL** after merging config is: use the non-empty value from flags / 
 
 | Variable | Purpose |
 |----------|---------|
-| **`ISBN_AP_KEY`** | Books API credential. Merged from env after YAML; default for **`-key`**; **required** in the environment for the **web** server (never entered in the browser). |
+| **`ISBN_AP_KEY`** | Books API credential. Merged from env after YAML; default for **`-key`**; **REQUIRED** in the environment for the **web** server (MUST NOT be entered in the browser). |
 | **`ISBNDB_BOOKS_URL`** | Legacy alias for the books POST URL (same tier as **`FANTASTIC_SPOON_API_URL`**). Ignored if **`FANTASTIC_SPOON_API_URL`** is set. |
 | **`FANTASTIC_SPOON_INPUT`** | CLI **`-input`** path. |
 | **`FANTASTIC_SPOON_OUTPUT`** | CLI **`-output`** path. |
@@ -123,11 +127,11 @@ The **books URL** after merging config is: use the non-empty value from flags / 
 
 ### Command-line flags
 
-Flag **defaults** reflect `.isbn_config.yml` (if found) plus the environment; passing a flag always overrides that merged value.
+Flag **defaults** reflect `.isbn_config.yml` (if found) plus the environment; a flag that is passed MUST override that merged value.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-input` | merged | Path to a text file with **one ISBN per line**. Required for CLI unless set via YAML/env. Not used with `-web`. |
+| `-input` | merged | Path to a text file with **one ISBN per line**. REQUIRED for CLI unless set via YAML/env. Not used with `-web`. |
 | `-output` | merged (`results.json`) | Path for the written JSON file (mode `0644`). |
 | `-key` | merged | API key sent in the `Authorization` header. |
 | `-batch` | merged (`100`) | ISBNs per request (match your provider plan). |
@@ -150,7 +154,7 @@ go run . -web
 ```
 
 - **GET /** — Serves the HTML UI (embedded from `web/index.html`).
-- **POST /api/lookup** — JSON body (max ~2 MiB), JSON response. **No API key field** — extra JSON fields such as `api_key` are ignored by the server.
+- **POST /api/lookup** — JSON body (max ~2 MiB), JSON response. The server MUST NOT use an API key from the JSON body for outbound API calls; extra fields such as `api_key` are ignored by the decoder and MUST NOT override `ISBN_AP_KEY`.
 
 **Request body (JSON)**
 
@@ -159,10 +163,10 @@ go run . -web
 | `isbns` | string | Newline-separated ISBNs (same rules as a CLI input file). |
 | `batch_size` | number | If missing or ≤ 0, uses the server default from `.isbn_config.yml` / **`FANTASTIC_SPOON_BATCH`**, then `100`. |
 | `rate_every_sec` | number | Whole seconds between batches. If missing or ≤ 0, uses the server default **`rate_every`** (from YAML / **`FANTASTIC_SPOON_RATE_EVERY`**), then `1s`. |
-| `api_url` | string | Optional. If empty, uses merged server default (YAML / **`FANTASTIC_SPOON_API_URL`** / **`ISBNDB_BOOKS_URL`** / production default). |
-| `collection_file` | string | Optional. Same as **`-collection`**; if empty, uses server default from YAML / **`FANTASTIC_SPOON_COLLECTION`**. |
-| `status_log_file` | string | Optional. Same as **`-status-log`**; if empty, uses server default from YAML / **`FANTASTIC_SPOON_STATUS_LOG`**. |
-| `book_url_template` | string | Optional. Same as **`-book-url-template`**; if empty, uses server default from YAML / **`FANTASTIC_SPOON_BOOK_URL_TEMPLATE`**. |
+| `api_url` | string | OPTIONAL. If empty, uses merged server default (YAML / **`FANTASTIC_SPOON_API_URL`** / **`ISBNDB_BOOKS_URL`** / production default). |
+| `collection_file` | string | OPTIONAL. Same as **`-collection`**; if empty, uses server default from YAML / **`FANTASTIC_SPOON_COLLECTION`**. |
+| `status_log_file` | string | OPTIONAL. Same as **`-status-log`**; if empty, uses server default from YAML / **`FANTASTIC_SPOON_STATUS_LOG`**. |
+| `book_url_template` | string | OPTIONAL. Same as **`-book-url-template`**; if empty, uses server default from YAML / **`FANTASTIC_SPOON_BOOK_URL_TEMPLATE`**. |
 
 **Successful response (JSON)**
 
@@ -178,7 +182,7 @@ The server binds to **127.0.0.1** by default so it is not exposed on your LAN. O
 ### Examples (CLI)
 
 ```bash
-# Recommended: put paths, batching, and URL in .isbn_config.yml at the repo root, then only set the key in the environment
+# RECOMMENDED: put paths, batching, and URL in .isbn_config.yml at the repo root, then only set the key in the environment
 export ISBN_AP_KEY="your-key"
 go run .
 
@@ -235,11 +239,11 @@ git config core.hooksPath .githooks
 
 **Security and privacy.**
 
-- The API key is sent over **HTTPS** to the URL you configure (by default ISBNdb). Treat the key as a **secret**: use **`ISBN_AP_KEY`** in the environment or **`-key`** on the CLI; do not commit keys, real `.env` files, or **`.isbn_config.yml`** files that embed **`api_key`**, or long assignments in documentation.
-- The **web UI never collects the API key**; configure **`ISBN_AP_KEY` only on the server process** before starting. Use **localhost** (`-listen` default) to limit exposure; do not expose the server on the public internet without TLS and controls you trust.
+- The API key is sent over **HTTPS** to the URL you configure (by default ISBNdb). Treat the key as a **secret**: use **`ISBN_AP_KEY`** in the environment or **`-key`** on the CLI; you MUST NOT commit keys, real `.env` files, or **`.isbn_config.yml`** files that embed **`api_key`**, or long assignments in documentation.
+- The **web UI MUST NOT collect the API key**; configure **`ISBN_AP_KEY` only on the server process** before starting. Use **localhost** (`-listen` default) to limit exposure; you MUST NOT expose the server on the public internet without TLS and controls you trust.
 - The tool **does not** hash or encrypt keys beyond what TLS provides; operational security (rotation, least privilege, monitoring) is your responsibility.
-- You must comply with your **API provider’s terms of use**, quotas, and acceptable use. The program helps with pacing but does not guarantee you will never be rate-limited (`429` responses are treated as errors for that batch).
-- Output JSON may contain **bibliographic or personal data** depending on what the API returns—handle files and browser results according to your policies.
+- You MUST comply with your **API provider’s terms of use**, quotas, and acceptable use. The program helps with pacing but does not guarantee you will never be rate-limited (`429` responses are treated as errors for that batch).
+- Output JSON MAY contain **bibliographic or personal data** depending on what the API returns—handle files and browser results according to your policies.
 - Software is provided **as-is**, without warranty of any kind; see the license for disclaimer of liability.
 
 For security issues specific to this codebase (not your API account), please report them through the project’s normal contribution or maintainer channels.

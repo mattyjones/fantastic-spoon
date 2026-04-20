@@ -136,7 +136,7 @@ func TestRun_rejectsEmptyConfig(t *testing.T) {
 		BooksURL:   "http://localhost/books",
 		RateEvery:  time.Nanosecond,
 	}, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "required") {
+	if err == nil || !strings.Contains(err.Error(), "MUST") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -205,7 +205,7 @@ func TestRun_collection_addThenDuplicate(t *testing.T) {
 		t.Fatalf("log2 = %q", log2)
 	}
 	if strings.Contains(log2, "\tadded\t") {
-		t.Fatalf("second run should not add again: %q", log2)
+		t.Fatalf("second run MUST NOT add again: %q", log2)
 	}
 	doc2 := mustReadCollection(t, collPath)
 	if len(doc2.Books) != 2 {

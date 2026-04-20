@@ -119,7 +119,7 @@ func TestBinary_CLI(t *testing.T) {
 		if !errors.As(err, &ee) || ee.ExitCode() != 1 {
 			t.Fatalf("err = %v, output: %s", err, out)
 		}
-		if !strings.Contains(string(out), "required") {
+		if !strings.Contains(string(out), "MUST") {
 			t.Fatalf("output: %s", out)
 		}
 	})
@@ -139,7 +139,7 @@ func TestBinary_CLI(t *testing.T) {
 		if !errors.As(err, &ee) || ee.ExitCode() != 1 {
 			t.Fatalf("err = %v, output: %s", err, out)
 		}
-		if !strings.Contains(string(out), "required") {
+		if !strings.Contains(string(out), "MUST") {
 			t.Fatalf("output: %s", out)
 		}
 	})
