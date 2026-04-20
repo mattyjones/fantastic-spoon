@@ -108,22 +108,27 @@ func TestHandleWebLookup_success(t *testing.T) {
 	}
 }
 
-func TestHandleWebLookup_usesExplicitAPIURL(t *testing.T) {
+func TestHandleWebLookup_ignoresAPIURLInJSONBody(t *testing.T) {
 	srv, _ := newFakeISBNServer(t, fakeISBNServerOpts{APIKey: "secret"})
 	t.Setenv("ISBN_AP_KEY", "secret")
 	t.Setenv("ISBNDB_BOOKS_URL", "http://127.0.0.1:9/nope")
 
+	h := &webHandler{defaults: Config{
+		BooksURL:  srv.URL + "/books",
+		BatchSize: 10,
+		RateEvery: time.Nanosecond,
+	}}
 	payload := map[string]interface{}{
 		"isbns":          "one",
 		"batch_size":     10,
 		"rate_every_sec": 1,
-		"api_url":        srv.URL + "/books",
+		"api_url":        "http://127.0.0.1:9/ignored",
 	}
 	raw, _ := json.Marshal(payload)
 	req := httptest.NewRequest(http.MethodPost, "/api/lookup", bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	testBareWebHandler().handleWebLookup(rec, req)
+	h.handleWebLookup(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -243,6 +248,36 @@ func TestHandleWebLookup_wrongMethod(t *testing.T) {
 	}
 }
 
+func TestHandleWebLookup_rejectsNonLoopbackOrigin(t *testing.T) {
+	t.Setenv("ISBN_AP_KEY", "k")
+	payload := `{"isbns":"9781111111111","batch_size":10,"rate_every_sec":1}`
+	req := httptest.NewRequest(http.MethodPost, "/api/lookup", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://evil.example")
+	req.Host = "127.0.0.1:8080"
+	rec := httptest.NewRecorder()
+	testBareWebHandler().handleWebLookup(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleWebLookup_allowsLoopbackOrigin(t *testing.T) {
+	srv, _ := newFakeISBNServer(t, fakeISBNServerOpts{APIKey: "k"})
+	t.Setenv("ISBN_AP_KEY", "k")
+	t.Setenv("ISBNDB_BOOKS_URL", srv.URL+"/books")
+	payload := `{"isbns":"9781111111111","batch_size":10,"rate_every_sec":1}`
+	req := httptest.NewRequest(http.MethodPost, "/api/lookup", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://localhost:8080")
+	req.Host = "127.0.0.1:8080"
+	rec := httptest.NewRecorder()
+	testBareWebHandler().handleWebLookup(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestHandleWebLookup_usesServerDefaultsForBatchAndRate(t *testing.T) {
 	srv, fake := newFakeISBNServer(t, fakeISBNServerOpts{APIKey: "k"})
 	t.Setenv("ISBN_AP_KEY", "k")
@@ -276,6 +311,29 @@ func TestRunLookup_rejectsEmptyAPIKey(t *testing.T) {
 	}, []string{"1"}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "API key") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestValidateLoopbackListenAddr(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		addr  string
+		valid bool
+	}{
+		{addr: "127.0.0.1:8080", valid: true},
+		{addr: "localhost:8080", valid: true},
+		{addr: "[::1]:8080", valid: true},
+		{addr: "0.0.0.0:8080", valid: false},
+		{addr: ":8080", valid: false},
+		{addr: "example.com:8080", valid: false},
+	} {
+		err := validateLoopbackListenAddr(tc.addr)
+		if tc.valid && err != nil {
+			t.Fatalf("%q should be valid, got %v", tc.addr, err)
+		}
+		if !tc.valid && err == nil {
+			t.Fatalf("%q should be invalid", tc.addr)
+		}
 	}
 }
 

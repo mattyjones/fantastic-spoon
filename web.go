@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"embed"
 	"encoding/json"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -20,14 +23,29 @@ type webHandler struct {
 	defaults Config
 }
 
-func startWebUI(listenAddr string, defaults Config) error {
+func startWebUI(listenAddr string, defaults Config, readTimeout, writeTimeout, idleTimeout time.Duration) error {
+	if err := validateLoopbackListenAddr(listenAddr); err != nil {
+		return err
+	}
 	h := &webHandler{defaults: defaults}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", handleWebIndex)
 	mux.HandleFunc("/api/lookup", h.handleWebLookup)
+	if readTimeout <= 0 {
+		readTimeout = 15 * time.Second
+	}
+	if writeTimeout <= 0 {
+		writeTimeout = 30 * time.Second
+	}
+	if idleTimeout <= 0 {
+		idleTimeout = 60 * time.Second
+	}
 	srv := &http.Server{
 		Addr:              listenAddr,
 		Handler:           mux,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	log.Printf("fantastic-spoon web UI: http://%s", listenAddr)
@@ -52,7 +70,6 @@ type webLookupRequest struct {
 	ISBNs           string `json:"isbns"`
 	BatchSize       int    `json:"batch_size"`
 	RateEverySec    int    `json:"rate_every_sec"`
-	APIURL          string `json:"api_url"`
 	CollectionFile  string `json:"collection_file"`
 	StatusLogFile   string `json:"status_log_file"`
 	BookURLTemplate string `json:"book_url_template"`
@@ -66,6 +83,10 @@ type webLookupResponse struct {
 func (h *webHandler) handleWebLookup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !webRequestOriginAllowed(r) {
+		writeWebError(w, http.StatusForbidden, "forbidden origin; localhost web endpoint only accepts same-origin requests", "")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, webMaxBodyBytes)
@@ -104,10 +125,7 @@ func (h *webHandler) handleWebLookup(w http.ResponseWriter, r *http.Request) {
 		rateDur = time.Second
 	}
 
-	booksURL := strings.TrimSpace(req.APIURL)
-	if booksURL == "" {
-		booksURL = finalizeBooksURL(h.defaults.BooksURL)
-	}
+	booksURL := finalizeBooksURL(h.defaults.BooksURL)
 
 	collection := strings.TrimSpace(req.CollectionFile)
 	if collection == "" {
@@ -156,4 +174,76 @@ func writeWebError(w http.ResponseWriter, status int, message, logText string) {
 		"error": message,
 		"log":   logText,
 	})
+}
+
+func validateLoopbackListenAddr(listenAddr string) error {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(listenAddr))
+	if err != nil {
+		return fmt.Errorf("invalid listen address %q: %w", listenAddr, err)
+	}
+	if host == "" {
+		return fmt.Errorf("listen host must be explicit loopback (e.g. 127.0.0.1 or localhost), got %q", listenAddr)
+	}
+	if isLoopbackHost(host) {
+		return nil
+	}
+	return fmt.Errorf("listen host %q is not loopback; strict localhost mode only allows 127.0.0.1, ::1, or localhost", host)
+}
+
+func webRequestOriginAllowed(r *http.Request) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	u, err := url.ParseRequestURI(origin)
+	if err != nil {
+		return false
+	}
+	if !isLoopbackHost(u.Hostname()) {
+		return false
+	}
+
+	reqHost, reqPort := splitHostPortLoose(strings.TrimSpace(r.Host))
+	if reqHost == "" || !isLoopbackHost(reqHost) {
+		return false
+	}
+	originPort := normalizePort(u.Port(), u.Scheme)
+	requestPort := normalizePort(reqPort, "http")
+	return originPort != "" && originPort == requestPort
+}
+
+func splitHostPortLoose(hostport string) (string, string) {
+	if hostport == "" {
+		return "", ""
+	}
+	host, port, err := net.SplitHostPort(hostport)
+	if err == nil {
+		return strings.TrimSpace(host), strings.TrimSpace(port)
+	}
+	return strings.TrimSpace(hostport), ""
+}
+
+func normalizePort(port, scheme string) string {
+	port = strings.TrimSpace(port)
+	if port != "" {
+		return port
+	}
+	switch strings.ToLower(strings.TrimSpace(scheme)) {
+	case "https":
+		return "443"
+	default:
+		return "80"
+	}
+}
+
+func isLoopbackHost(host string) bool {
+	host = strings.Trim(strings.TrimSpace(host), "[]")
+	if host == "" {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

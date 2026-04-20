@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestFindISBNConfigPath_walksUp(t *testing.T) {
@@ -64,6 +65,42 @@ func TestMergeAppConfig_yamlRelativePaths(t *testing.T) {
 	}
 	if app.BatchSize != 5 {
 		t.Fatalf("batch = %d", app.BatchSize)
+	}
+}
+
+func TestDefaultAppConfig_webTimeoutsHaveSaneValues(t *testing.T) {
+	t.Parallel()
+	app := defaultAppConfig()
+	if app.ReadTimeout != 15*time.Second {
+		t.Fatalf("read timeout = %s", app.ReadTimeout)
+	}
+	if app.WriteTimeout != 30*time.Second {
+		t.Fatalf("write timeout = %s", app.WriteTimeout)
+	}
+	if app.IdleTimeout != 60*time.Second {
+		t.Fatalf("idle timeout = %s", app.IdleTimeout)
+	}
+}
+
+func TestMergeAppConfig_webTimeoutsFromYAMLAndEnv(t *testing.T) {
+	dir := t.TempDir()
+	yaml := filepath.Join(dir, isbnConfigFileName)
+	if err := os.WriteFile(yaml, []byte("read_timeout: 2s\nwrite_timeout: 4s\nidle_timeout: 8s\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(EnvWriteTimeout, "5s")
+	app, err := mergeAppConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app.ReadTimeout != 2*time.Second {
+		t.Fatalf("read timeout = %s", app.ReadTimeout)
+	}
+	if app.WriteTimeout != 5*time.Second {
+		t.Fatalf("write timeout = %s", app.WriteTimeout)
+	}
+	if app.IdleTimeout != 8*time.Second {
+		t.Fatalf("idle timeout = %s", app.IdleTimeout)
 	}
 }
 

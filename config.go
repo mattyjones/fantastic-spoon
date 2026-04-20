@@ -16,8 +16,11 @@ const isbnConfigFileName = ".isbn_config.yml"
 // AppConfig is CLI-level settings: lookup Config plus web server options.
 type AppConfig struct {
 	Config
-	WebUI  bool
-	Listen string
+	WebUI        bool
+	Listen       string
+	ReadTimeout  time.Duration
+	WriteTimeout time.Duration
+	IdleTimeout  time.Duration
 }
 
 // fileYAML mirrors .isbn_config.yml; pointers mean "omit = leave previous value".
@@ -30,6 +33,9 @@ type fileYAML struct {
 	RateEvery       *string `yaml:"rate_every"`
 	Web             *bool   `yaml:"web"`
 	Listen          *string `yaml:"listen"`
+	ReadTimeout     *string `yaml:"read_timeout"`
+	WriteTimeout    *string `yaml:"write_timeout"`
+	IdleTimeout     *string `yaml:"idle_timeout"`
 	Collection      *string `yaml:"collection"`
 	StatusLog       *string `yaml:"status_log"`
 	BookURLTemplate *string `yaml:"book_url_template"`
@@ -62,7 +68,10 @@ func defaultAppConfig() AppConfig {
 			RateEvery:       time.Second,
 			BookURLTemplate: DefaultBookURLTemplate,
 		},
-		Listen: "127.0.0.1:8080",
+		Listen:       "127.0.0.1:8080",
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 }
 
@@ -121,6 +130,27 @@ func applyYAMLFile(cfg *AppConfig, path string) error {
 	if y.Listen != nil {
 		cfg.Listen = strings.TrimSpace(*y.Listen)
 	}
+	if y.ReadTimeout != nil {
+		d, err := time.ParseDuration(strings.TrimSpace(*y.ReadTimeout))
+		if err != nil {
+			return fmt.Errorf("%s: read_timeout: %w", path, err)
+		}
+		cfg.ReadTimeout = d
+	}
+	if y.WriteTimeout != nil {
+		d, err := time.ParseDuration(strings.TrimSpace(*y.WriteTimeout))
+		if err != nil {
+			return fmt.Errorf("%s: write_timeout: %w", path, err)
+		}
+		cfg.WriteTimeout = d
+	}
+	if y.IdleTimeout != nil {
+		d, err := time.ParseDuration(strings.TrimSpace(*y.IdleTimeout))
+		if err != nil {
+			return fmt.Errorf("%s: idle_timeout: %w", path, err)
+		}
+		cfg.IdleTimeout = d
+	}
 	if y.Collection != nil {
 		cfg.CollectionFile = resolveConfigPath(baseDir, *y.Collection)
 	}
@@ -174,6 +204,21 @@ func applyEnv(cfg *AppConfig) {
 	}
 	if v := strings.TrimSpace(os.Getenv(EnvListen)); v != "" {
 		cfg.Listen = v
+	}
+	if v := strings.TrimSpace(os.Getenv(EnvReadTimeout)); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.ReadTimeout = d
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv(EnvWriteTimeout)); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.WriteTimeout = d
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv(EnvIdleTimeout)); v != "" {
+		if d, err := time.ParseDuration(v); err == nil {
+			cfg.IdleTimeout = d
+		}
 	}
 	if v := strings.TrimSpace(os.Getenv(EnvCollectionFile)); v != "" {
 		cfg.CollectionFile = v

@@ -50,7 +50,7 @@ When **`-collection`** / **`collection_file`** is set:
 
 Settings are merged in this order (later steps override earlier ones):
 
-1. **Built-in defaults** (for example `results.json`, batch size `100`, `rate_every` one second, localhost web listen address).
+1. **Built-in defaults** (for example `results.json`, batch size `100`, `rate_every` one second, localhost web listen address, and web server timeouts).
 2. **`.isbn_config.yml`** — If this file exists, the program searches upward from the **current working directory** (the directory you pass to `os.Getwd()` when the process starts) through parent directories until it finds **`.isbn_config.yml`**, then loads it. If the file is **not** found anywhere on that path, configuration from YAML is skipped entirely (no error).
 3. **Environment variables** — Each variable that is set MUST override the corresponding value from the file (see tables below).
 4. **CLI flags** — Each flag that is passed MUST override the merged value from file and environment for that run.
@@ -69,6 +69,9 @@ api_url: https://api2.isbndb.com/books
 rate_every: 1s
 web: false
 listen: 127.0.0.1:8080
+read_timeout: 15s
+write_timeout: 30s
+idle_timeout: 60s
 collection: ""
 status_log: ""
 book_url_template: https://isbndb.com/book/%s
@@ -79,7 +82,7 @@ Omit keys you do not need; boolean **`web`** defaults to `false` when absent. Yo
 ### API key configuration
 
 - **CLI** — Pass **`-key`**, set **`api_key`** in `.isbn_config.yml`, and/or set **`ISBN_AP_KEY`** (see `EnvISBNAPKey` in `env.go`). When both are set, **`ISBN_AP_KEY`** MUST override a key from YAML.
-- **Web UI** — The browser MUST NOT send or receive the API key. Only the server process MAY read **`ISBN_AP_KEY`** from the environment when you start `go run . -web` (or your built binary). There MUST NOT be a key field in the HTML or in the JSON request body. Batch size, rate, API URL, collection paths, and **`book_url_template`** still default from `.isbn_config.yml` and **`FANTASTIC_SPOON_*`** variables when the JSON request omits them.
+- **Web UI** — The browser MUST NOT send or receive the API key. Only the server process MAY read **`ISBN_AP_KEY`** from the environment when you start `go run . -web` (or your built binary). There MUST NOT be a key field in the HTML or in the JSON request body. Batch size, rate, collection paths, and **`book_url_template`** still default from `.isbn_config.yml` and **`FANTASTIC_SPOON_*`** variables when the JSON request omits them. The web handler uses the server-configured books URL only (request JSON MUST NOT override it).
 
 ### Code layout
 
@@ -92,9 +95,9 @@ Omit keys you do not need; boolean **`web`** defaults to `false` when absent. Yo
 | **`runLookup()`** | Shared implementation: batching, rate limiting, HTTP calls, and the in-memory result map used by both CLI and web. |
 | `collection.go` | Load/save collection JSON, per-ISBN status lines, URL resolution from API or template. |
 | `web.go` | Local HTTP server (`GET /`, `POST /api/lookup`), embeds the `web/` static assets via `embed.FS`. |
-| `web/index.html` | Single-page UI (ISBNs, file picker, API URL, OPTIONAL collection paths on the server). |
+| `web/index.html` | Single-page UI (ISBNs, file picker, OPTIONAL collection paths on the server). |
 
-The **books URL** after merging config is: use the non-empty value from flags / YAML / env (`FANTASTIC_SPOON_API_URL` or legacy **`ISBNDB_BOOKS_URL`**), then default to `https://api2.isbndb.com/books`. For the **web UI**, the JSON field **`api_url`** (if non-empty) overrides; otherwise the handler uses the same merge result from server defaults (YAML + env + CLI for `-web` / `-listen` / shared fields).
+The **books URL** after merging config is: use the non-empty value from flags / YAML / env (`FANTASTIC_SPOON_API_URL` or legacy **`ISBNDB_BOOKS_URL`**), then default to `https://api2.isbndb.com/books`. The web handler always uses this server-side value; request JSON cannot override it.
 
 ### Policy tests and hooks
 
@@ -121,6 +124,9 @@ The **books URL** after merging config is: use the non-empty value from flags / 
 | **`FANTASTIC_SPOON_RATE_EVERY`** | Duration string for **`-rate-every`** (for example `1s`, `500ms`). |
 | **`FANTASTIC_SPOON_WEB`** | `true` / `false` / `1` / `0` for **`-web`**. |
 | **`FANTASTIC_SPOON_LISTEN`** | **`-listen`** address. |
+| **`FANTASTIC_SPOON_READ_TIMEOUT`** | Duration string for **`-read-timeout`** (for example `15s`). |
+| **`FANTASTIC_SPOON_WRITE_TIMEOUT`** | Duration string for **`-write-timeout`** (for example `30s`). |
+| **`FANTASTIC_SPOON_IDLE_TIMEOUT`** | Duration string for **`-idle-timeout`** (for example `60s`). |
 | **`FANTASTIC_SPOON_COLLECTION`** | **`-collection`** path. |
 | **`FANTASTIC_SPOON_STATUS_LOG`** | **`-status-log`** path. |
 | **`FANTASTIC_SPOON_BOOK_URL_TEMPLATE`** | **`-book-url-template`**. |
@@ -138,7 +144,10 @@ Flag **defaults** reflect `.isbn_config.yml` (if found) plus the environment; a 
 | `-api-url` | merged | Full URL for the books **POST** endpoint. |
 | `-rate-every` | merged (`1s`) | Minimum time between batch requests. |
 | `-web` | merged (`false`) | Start a **local web UI** instead of the CLI. |
-| `-listen` | merged (`127.0.0.1:8080`) | Listen address for `-web` (localhost only by default). |
+| `-listen` | merged (`127.0.0.1:8080`) | Listen address for `-web`. MUST be loopback (`127.0.0.1`, `::1`, or `localhost`) in strict localhost mode. |
+| `-read-timeout` | merged (`15s`) | Max duration to read the full request in web mode. |
+| `-write-timeout` | merged (`30s`) | Max duration to write a response in web mode. |
+| `-idle-timeout` | merged (`60s`) | Keep-alive timeout for idle web connections in web mode. |
 | `-collection` | merged | JSON file to merge unique books into (enables status log). |
 | `-status-log` | merged | Text log path (`<output-basename>.status.log` or `<collection-basename>.status.log`). |
 | `-book-url-template` | merged | `Printf` template when the API record has no URL (exactly one `%s` for ISBN). |
@@ -163,7 +172,6 @@ go run . -web
 | `isbns` | string | Newline-separated ISBNs (same rules as a CLI input file). |
 | `batch_size` | number | If missing or ≤ 0, uses the server default from `.isbn_config.yml` / **`FANTASTIC_SPOON_BATCH`**, then `100`. |
 | `rate_every_sec` | number | Whole seconds between batches. If missing or ≤ 0, uses the server default **`rate_every`** (from YAML / **`FANTASTIC_SPOON_RATE_EVERY`**), then `1s`. |
-| `api_url` | string | OPTIONAL. If empty, uses merged server default (YAML / **`FANTASTIC_SPOON_API_URL`** / **`ISBNDB_BOOKS_URL`** / production default). |
 | `collection_file` | string | OPTIONAL. Same as **`-collection`**; if empty, uses server default from YAML / **`FANTASTIC_SPOON_COLLECTION`**. |
 | `status_log_file` | string | OPTIONAL. Same as **`-status-log`**; if empty, uses server default from YAML / **`FANTASTIC_SPOON_STATUS_LOG`**. |
 | `book_url_template` | string | OPTIONAL. Same as **`-book-url-template`**; if empty, uses server default from YAML / **`FANTASTIC_SPOON_BOOK_URL_TEMPLATE`**. |
@@ -177,7 +185,7 @@ go run . -web
 
 **Error response (JSON)** — HTTP 4xx with `{ "error": "<message>", "log": "<partial progress if any>" }`.
 
-The server binds to **127.0.0.1** by default so it is not exposed on your LAN. Override with `-listen` only if you intend to reach it from other machines (treat that as a security decision).
+The server binds to **127.0.0.1** by default so it is not exposed on your LAN. In strict localhost mode, non-loopback listen addresses are rejected.
 
 ### Examples (CLI)
 
@@ -240,7 +248,7 @@ git config core.hooksPath .githooks
 **Security and privacy.**
 
 - The API key is sent over **HTTPS** to the URL you configure (by default ISBNdb). Treat the key as a **secret**: use **`ISBN_AP_KEY`** in the environment or **`-key`** on the CLI; you MUST NOT commit keys, real `.env` files, or **`.isbn_config.yml`** files that embed **`api_key`**, or long assignments in documentation.
-- The **web UI MUST NOT collect the API key**; configure **`ISBN_AP_KEY` only on the server process** before starting. Use **localhost** (`-listen` default) to limit exposure; you MUST NOT expose the server on the public internet without TLS and controls you trust.
+- The **web UI MUST NOT collect the API key**; configure **`ISBN_AP_KEY` only on the server process** before starting. The server is intended for strict localhost use and rejects non-loopback listen addresses.
 - The tool **does not** hash or encrypt keys beyond what TLS provides; operational security (rotation, least privilege, monitoring) is your responsibility.
 - You MUST comply with your **API provider’s terms of use**, quotas, and acceptable use. The program helps with pacing but does not guarantee you will never be rate-limited (`429` responses are treated as errors for that batch).
 - Output JSON MAY contain **bibliographic or personal data** depending on what the API returns—handle files and browser results according to your policies.

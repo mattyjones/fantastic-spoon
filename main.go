@@ -90,6 +90,9 @@ func main() {
 	config := base.Config
 	webUI := base.WebUI
 	listen := base.Listen
+	readTimeout := base.ReadTimeout
+	writeTimeout := base.WriteTimeout
+	idleTimeout := base.IdleTimeout
 
 	// --- Flags: I/O, credentials, batching, and overrides (defaults from file + env) ---
 	flag.StringVar(&config.InputFile, "input", config.InputFile, "Path to the line-separated ISBN file (REQUIRED unless -web)")
@@ -100,6 +103,9 @@ func main() {
 	flag.DurationVar(&config.RateEvery, "rate-every", config.RateEvery, "Minimum time between API batch requests")
 	flag.BoolVar(&webUI, "web", webUI, "Run a local web UI to paste ISBNs or upload a file")
 	flag.StringVar(&listen, "listen", listen, "Listen address for -web (localhost only by default)")
+	flag.DurationVar(&readTimeout, "read-timeout", readTimeout, "Web server max duration for reading the entire request (for -web)")
+	flag.DurationVar(&writeTimeout, "write-timeout", writeTimeout, "Web server max duration for writing the response (for -web)")
+	flag.DurationVar(&idleTimeout, "idle-timeout", idleTimeout, "Web server keep-alive timeout for idle connections (for -web)")
 	flag.StringVar(&config.CollectionFile, "collection", config.CollectionFile, "JSON collection file to merge books into (enables per-ISBN status log)")
 	flag.StringVar(&config.StatusLogFile, "status-log", config.StatusLogFile, "Text log path (ISBN, status, outcome, URL); default derived from -output or -collection")
 	flag.StringVar(&config.BookURLTemplate, "book-url-template", config.BookURLTemplate, "Printf template for book URL when API omits one (one %s = ISBN)")
@@ -108,7 +114,7 @@ func main() {
 	config.BooksURL = finalizeBooksURL(config.BooksURL)
 
 	if webUI {
-		if err := startWebUI(listen, config); err != nil {
+		if err := startWebUI(listen, config, readTimeout, writeTimeout, idleTimeout); err != nil {
 			log.Fatal(err)
 		}
 		return

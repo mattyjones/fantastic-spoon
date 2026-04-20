@@ -91,9 +91,6 @@
       <input type="number" id="rate" min="1" max="3600" value="1" />
     </div>
   </div>
-  <label for="api_url">API URL (OPTIONAL)</label>
-  <input type="url" id="api_url" placeholder="Default: ISBNdb or ISBNDB_BOOKS_URL" />
-
   <h2 style="font-size:1rem;margin:1.25rem 0 0.35rem;">Collection (OPTIONAL, server paths)</h2>
   <p class="note">Merge API results into a JSON collection and write a tab-separated status log (ISBN, added|duplicate|not_added, successful|unsuccessful, URL). Leave blank for lookup-only.</p>
   <label for="collection_file">Collection JSON file</label>
@@ -135,7 +132,6 @@
         isbns: $("isbns").value,
         batch_size: Number($("batch").value) || 100,
         rate_every_sec: Number($("rate").value) || 1,
-        api_url: $("api_url").value.trim(),
         collection_file: $("collection_file").value.trim(),
         status_log_file: $("status_log_file").value.trim(),
         book_url_template: $("book_url_template").value.trim(),
