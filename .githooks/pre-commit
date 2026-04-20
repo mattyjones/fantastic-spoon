@@ -74,6 +74,30 @@ scan_staged_for_secrets() {
     append_report ""
   fi
 
+  # ISBN_AP_KEY / ISBNDB_API_KEY assignments that look like real secrets (not short placeholders).
+  if out=$(git grep --cached -nE 'ISBN_AP_KEY=[^#[:space:]]{16,}' -- . ':(exclude).githooks/pre-commit' 2>/dev/null); then
+    found=1
+    append_report "--- possible secret: long ISBN_AP_KEY= value in staged file ---"
+    append_report "${out}"
+    append_report ""
+  fi
+  if out=$(git grep --cached -nE 'ISBNDB_API_KEY=[^#[:space:]]{16,}' -- . ':(exclude).githooks/pre-commit' 2>/dev/null); then
+    found=1
+    append_report "--- possible secret: long ISBNDB_API_KEY= value (legacy env name) ---"
+    append_report "${out}"
+    append_report ""
+  fi
+
+  # Block committing typical environment files (keep secrets out of git).
+  while IFS= read -r f; do
+    [[ -z "${f}" ]] && continue
+    base="${f##*/}"
+    if [[ "${base}" == .env || "${base}" == .env.local ]]; then
+      found=1
+      append_report "--- do not commit ${f} (use .env.example; configure ISBN_AP_KEY at runtime) ---"
+    fi
+  done < <(git diff --cached --name-only --diff-filter=ACM)
+
   if [[ "${found}" -ne 0 ]]; then
     echo "  [FAIL] staged content matched secret patterns" >&2
     FAILED=1

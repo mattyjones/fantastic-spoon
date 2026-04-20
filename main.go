@@ -2,8 +2,8 @@
 // in configurable batches with client-side rate limiting, and writes aggregated
 // results as JSON (metadata + book records).
 //
-// Production defaults target the ISBNdb HTTP API; flags and environment variables
-// allow overriding the endpoint and pacing for tests or alternate deployments.
+// Production defaults target the ISBNdb HTTP API. Optional `.isbn_config.yml`,
+// environment variables (`env.go`), and CLI flags merge in that order (flags win).
 package main
 
 import (
@@ -33,8 +33,9 @@ type ISBNDBResponse struct {
 	Books []map[string]interface{} `json:"books"`
 }
 
-// Config holds runtime options for a single lookup run. Values are typically
-// filled from CLI flags in main; tests may construct Config directly.
+// Config holds runtime options for a single lookup run. The CLI fills this from
+// merged `.isbn_config.yml`, environment variables, and flags; tests may set
+// fields directly.
 type Config struct {
 	// APIKey is sent as the HTTP Authorization header on each batch request.
 	// For ISBNdb this is usually the raw API key string (not "Bearer ...").
@@ -58,33 +59,55 @@ type Config struct {
 	// RateEvery is the minimum elapsed time between batch requests. Values <= 0
 	// are treated as one second inside run so callers cannot accidentally disable pacing.
 	RateEvery time.Duration
+
+	// CollectionFile, if set, is a JSON file of accumulated books (keyed by ISBN).
+	// Each run merges API results into this collection and writes a text status log.
+	CollectionFile string
+	// StatusLogFile is the path for the per-ISBN status log (tab-separated).
+	// If empty but CollectionFile is set, defaults next to -output or next to the collection file.
+	StatusLogFile string
+	// BookURLTemplate is printf format with one %s for ISBN when the API record has no URL.
+	BookURLTemplate string
 }
 
-// main parses CLI flags, resolves the API URL and pacing, validates required
-// settings, then delegates to run. Non-validation failures are printed with
-// log.Fatal (exit code 1); usage errors print a message and flag help first.
+// main loads optional .isbn_config.yml (see config.go), applies environment
+// overrides, then parses CLI flags (which override file and env). Non-validation
+// failures use log.Fatal (exit code 1); usage errors print a message and help.
 func main() {
-	config := Config{}
-	var apiURL string
+	wd, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
+	base, err := mergeAppConfig(wd)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// --- Flags: I/O, credentials, batching, and overrides ---
-	flag.StringVar(&config.InputFile, "input", "", "Path to the line-separated ISBN file (required)")
-	flag.StringVar(&config.OutputFile, "output", "results.json", "Output JSON file path")
-	flag.StringVar(&config.APIKey, "key", os.Getenv("ISBNDB_API_KEY"), "ISBNDB API Key (or use ISBNDB_API_KEY env var)")
-	flag.IntVar(&config.BatchSize, "batch", 100, "Batch size (Academic: 10, Basic: 100, Pro: 1000)")
-	flag.StringVar(&apiURL, "api-url", "", "Books API POST URL (default: ISBNDB_BOOKS_URL env or production ISBNdb)")
-	flag.DurationVar(&config.RateEvery, "rate-every", time.Second, "Minimum time between API batch requests")
+	config := base.Config
+	webUI := base.WebUI
+	listen := base.Listen
+
+	// --- Flags: I/O, credentials, batching, and overrides (defaults from file + env) ---
+	flag.StringVar(&config.InputFile, "input", config.InputFile, "Path to the line-separated ISBN file (required unless -web)")
+	flag.StringVar(&config.OutputFile, "output", config.OutputFile, "Output JSON file path")
+	flag.StringVar(&config.APIKey, "key", config.APIKey, "API key (or set "+EnvISBNAPKey+" in the environment)")
+	flag.IntVar(&config.BatchSize, "batch", config.BatchSize, "Batch size (Academic: 10, Basic: 100, Pro: 1000)")
+	flag.StringVar(&config.BooksURL, "api-url", config.BooksURL, "Books API POST URL (default: "+EnvBooksURL+", ISBNDB_BOOKS_URL, or production ISBNdb)")
+	flag.DurationVar(&config.RateEvery, "rate-every", config.RateEvery, "Minimum time between API batch requests")
+	flag.BoolVar(&webUI, "web", webUI, "Run a local web UI to paste ISBNs or upload a file")
+	flag.StringVar(&listen, "listen", listen, "Listen address for -web (localhost only by default)")
+	flag.StringVar(&config.CollectionFile, "collection", config.CollectionFile, "JSON collection file to merge books into (enables per-ISBN status log)")
+	flag.StringVar(&config.StatusLogFile, "status-log", config.StatusLogFile, "Text log path (ISBN, status, outcome, URL); default derived from -output or -collection")
+	flag.StringVar(&config.BookURLTemplate, "book-url-template", config.BookURLTemplate, "Printf template for book URL when API omits one (one %s = ISBN)")
 	flag.Parse()
 
-	// Resolve BooksURL: explicit flag wins, then env, then hard-coded ISBNdb URL.
-	// This ordering lets operators override per run without changing code, and
-	// lets integration tests point at httptest servers via -api-url or env.
-	if apiURL != "" {
-		config.BooksURL = apiURL
-	} else if v := os.Getenv("ISBNDB_BOOKS_URL"); v != "" {
-		config.BooksURL = v
-	} else {
-		config.BooksURL = "https://api2.isbndb.com/books"
+	config.BooksURL = finalizeBooksURL(config.BooksURL)
+
+	if webUI {
+		if err := startWebUI(listen, config); err != nil {
+			log.Fatal(err)
+		}
+		return
 	}
 
 	if config.InputFile == "" || config.APIKey == "" {
@@ -98,30 +121,11 @@ func main() {
 	}
 }
 
-// run executes the full pipeline: read ISBNs, call the API in batches with
-// rate limiting, merge successful responses, and write JSON to OutputFile.
-//
-// Progress messages are written to out (main passes os.Stdout). Batch errors
-// are logged to the standard logger and skipped so one failed batch does not
-// abort the entire run; the output file still reflects all successfully fetched books.
-//
-// Context cancellation: limiter.Wait respects ctx; if ctx is cancelled, run
-// returns that error and may leave OutputFile from a previous run untouched.
+// run reads ISBN lines from cfg.InputFile, runs the lookup pipeline, and writes JSON to cfg.OutputFile.
 func run(ctx context.Context, cfg Config, out io.Writer) error {
 	if cfg.InputFile == "" || cfg.APIKey == "" {
 		return fmt.Errorf("input file and API key are required")
 	}
-	if cfg.BooksURL == "" {
-		cfg.BooksURL = "https://api2.isbndb.com/books"
-	}
-
-	// Normalize pacing: zero or negative durations would confuse rate.Every;
-	// default to one second between batches (same as the CLI default).
-	rateEvery := cfg.RateEvery
-	if rateEvery <= 0 {
-		rateEvery = time.Second
-	}
-
 	data, err := os.ReadFile(cfg.InputFile)
 	if err != nil {
 		return fmt.Errorf("read input file: %w", err)
@@ -131,11 +135,68 @@ func run(ctx context.Context, cfg Config, out io.Writer) error {
 	// line does not create an extra empty element in most files.
 	allISBNs := strings.Split(strings.TrimSpace(string(data)), "\n")
 
-	// Token bucket: burst 1 enforces a minimum interval of rateEvery between
-	// successive Wait calls (one batch request per Wait).
+	output, err := runLookup(ctx, cfg, allISBNs, out)
+	if err != nil {
+		return err
+	}
+
+	file, err := json.MarshalIndent(output, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal output: %w", err)
+	}
+	if err := os.WriteFile(cfg.OutputFile, file, 0644); err != nil {
+		return fmt.Errorf("write output: %w", err)
+	}
+
+	meta, _ := output["metadata"].(map[string]interface{})
+	total, _ := meta["total_found"].(int)
+	fmt.Fprintf(out, "Done! Saved %d books to %s\n", total, cfg.OutputFile)
+	if cfg.CollectionFile != "" {
+		if sm, ok := output["metadata"].(map[string]interface{}); ok {
+			if p, ok := sm["status_log_path"].(string); ok {
+				fmt.Fprintf(out, "Collection updated at %s; status log: %s\n", cfg.CollectionFile, p)
+			}
+		}
+	}
+	return nil
+}
+
+// runLookup calls the books API in batches with rate limiting and returns the
+// same JSON-serializable document as the CLI (metadata + books). Progress is
+// written to out; batch errors are logged and skipped.
+// If cfg.CollectionFile is set, merges into the collection and writes a status log.
+func runLookup(ctx context.Context, cfg Config, allISBNs []string, out io.Writer) (map[string]interface{}, error) {
+	if cfg.APIKey == "" {
+		return nil, fmt.Errorf("API key is required")
+	}
+	if cfg.BooksURL == "" {
+		cfg.BooksURL = "https://api2.isbndb.com/books"
+	}
+	tpl := cfg.BookURLTemplate
+	if tpl == "" {
+		tpl = DefaultBookURLTemplate
+	}
+
+	var coll map[string]map[string]interface{}
+	var statusLines []string
+	if cfg.CollectionFile != "" {
+		var err error
+		coll, err = loadCollection(cfg.CollectionFile)
+		if err != nil {
+			return nil, err
+		}
+		statusLines = make([]string, 0, len(allISBNs))
+	}
+
+	rateEvery := cfg.RateEvery
+	if rateEvery <= 0 {
+		rateEvery = time.Second
+	}
+
 	limiter := rate.NewLimiter(rate.Every(rateEvery), 1)
 	client := &http.Client{Timeout: 30 * time.Second}
 	var finalBooks []map[string]interface{}
+	var addedN, dupN, notAddedN int
 
 	fmt.Fprintf(out, "Processing %d ISBNs in batches of %d...\n", len(allISBNs), cfg.BatchSize)
 
@@ -147,36 +208,80 @@ func run(ctx context.Context, cfg Config, out io.Writer) error {
 		batch := allISBNs[i:end]
 
 		if err := limiter.Wait(ctx); err != nil {
-			return err
+			return nil, err
 		}
 
 		fmt.Fprintf(out, "Requesting batch %d to %d...\n", i+1, end)
 		books, err := lookupBatch(client, cfg.BooksURL, cfg.APIKey, batch)
 		if err != nil {
 			log.Printf("Error processing batch starting at %d: %v", i, err)
+			if coll != nil {
+				for _, rawISBN := range batch {
+					statusLines = append(statusLines, formatStatusLogLine(rawISBN, StatusNotAdded, ""))
+					notAddedN++
+				}
+			}
 			continue
 		}
 		finalBooks = append(finalBooks, books...)
+
+		if coll != nil {
+			byISBN := indexBooksByISBN(books)
+			for _, rawISBN := range batch {
+				isbn := normalizeISBN(rawISBN)
+				if isbn == "" {
+					statusLines = append(statusLines, formatStatusLogLine(rawISBN, StatusNotAdded, ""))
+					notAddedN++
+					continue
+				}
+				b, ok := byISBN[isbn]
+				if !ok {
+					statusLines = append(statusLines, formatStatusLogLine(isbn, StatusNotAdded, ""))
+					notAddedN++
+					continue
+				}
+				url := bookURL(b, isbn, tpl)
+				if _, exists := coll[isbn]; exists {
+					statusLines = append(statusLines, formatStatusLogLine(isbn, StatusDuplicate, url))
+					dupN++
+				} else {
+					coll[isbn] = cloneBookMap(b)
+					statusLines = append(statusLines, formatStatusLogLine(isbn, StatusAdded, url))
+					addedN++
+				}
+			}
+		}
 	}
 
-	output := map[string]interface{}{
-		"metadata": map[string]interface{}{
-			"processed_at": time.Now().Format(time.RFC3339),
-			"total_found":  len(finalBooks),
-		},
-		"books": finalBooks,
+	meta := map[string]interface{}{
+		"processed_at": time.Now().Format(time.RFC3339),
+		"total_found":  len(finalBooks),
+	}
+	if coll != nil {
+		meta["collection_added"] = addedN
+		meta["collection_duplicates"] = dupN
+		meta["collection_not_added"] = notAddedN
+		if err := saveCollection(cfg.CollectionFile, coll); err != nil {
+			return nil, fmt.Errorf("write collection: %w", err)
+		}
+		logPath := cfg.StatusLogFile
+		if logPath == "" {
+			if cfg.OutputFile != "" {
+				logPath = defaultStatusLogPath(cfg.OutputFile)
+			} else {
+				logPath = defaultStatusLogFromCollection(cfg.CollectionFile)
+			}
+		}
+		if err := writeStatusLog(logPath, statusLines); err != nil {
+			return nil, fmt.Errorf("write status log: %w", err)
+		}
+		meta["status_log_path"] = logPath
 	}
 
-	file, err := json.MarshalIndent(output, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal output: %w", err)
-	}
-	if err := os.WriteFile(cfg.OutputFile, file, 0644); err != nil {
-		return fmt.Errorf("write output: %w", err)
-	}
-
-	fmt.Fprintf(out, "Done! Saved %d books to %s\n", len(finalBooks), cfg.OutputFile)
-	return nil
+	return map[string]interface{}{
+		"metadata": meta,
+		"books":    finalBooks,
+	}, nil
 }
 
 // lookupBatch performs a single multi-ISBN lookup against booksURL using the
