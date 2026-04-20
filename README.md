@@ -99,7 +99,7 @@ The **books URL** after merging config is: use the non-empty value from flags / 
 
 ## Requirements
 
-- [Go](https://go.dev/dl/) **1.26.1** or compatible (see `go.mod`).
+- [Go](https://go.dev/dl/) **1.26.1** or newer (`go` directive in `go.mod`); that is the minimum toolchain version this module is written to compile against. Development builds and `go test` are run on **darwin/arm64** (macOS, Apple Silicon).
 - A valid API key for your chosen books service (when using the default ISBNdb endpoint, an ISBNdb API key).
 
 ## Usage
