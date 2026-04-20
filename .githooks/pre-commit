@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Git pre-commit: formatting, module integrity, vet, build, tests, and linters.
+#
+# Enable this repo's hooks (one-time per clone):
+#   git config core.hooksPath .githooks
+#
+set -uo pipefail
+IFS=$'\n\t'
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "pre-commit: error: not inside a git repository" >&2
+  exit 1
+}
+cd "$ROOT" || exit 1
+
+FAILED=0
+REPORT=()
+
+append_report() {
+  REPORT+=("$1")
+}
+
+run_check() {
+  local title="$1"
+  shift
+  local output
+  if output="$("$@" 2>&1)"; then
+    echo "  [ok] ${title}"
+  else
+    echo "  [FAIL] ${title}" >&2
+    FAILED=1
+    append_report "--- ${title} ---"
+    append_report "${output}"
+    append_report ""
+  fi
+}
+
+echo "pre-commit: running checks in ${ROOT}"
+
+# 1) Formatting (must be clean before other tools)
+UNFMT="$(gofmt -l . 2>&1 || true)"
+if [[ -n "${UNFMT}" ]]; then
+  echo "  [FAIL] gofmt (files need formatting)" >&2
+  FAILED=1
+  append_report "--- gofmt ---"
+  append_report "These files are not gofmt-clean. Run: gofmt -w ."
+  append_report "${UNFMT}"
+  append_report ""
+else
+  echo "  [ok] gofmt"
+fi
+
+# 2) Module checksums
+run_check "go mod verify" go mod verify
+
+# 3) Vet + build + tests
+run_check "go vet ./..." go vet ./...
+run_check "go build ./..." go build ./...
+run_check "go test ./..." go test ./... -count=1
+
+# 4) golangci-lint when installed (optional but recommended)
+if command -v golangci-lint >/dev/null 2>&1; then
+  run_check "golangci-lint" golangci-lint run ./...
+else
+  echo "  [skip] golangci-lint (install from https://golangci-lint.run/ for stricter linting)"
+fi
+
+if [[ "${FAILED}" -ne 0 ]]; then
+  {
+    echo ""
+    echo "================================================================"
+    echo "PRE-COMMIT BLOCKED: one or more checks failed."
+    echo "Review the output below, fix the issues, then commit again."
+    echo "================================================================"
+    printf '%s\n' "${REPORT[@]}"
+  } >&2
+  exit 1
+fi
+
+echo "pre-commit: all checks passed."
+exit 0
