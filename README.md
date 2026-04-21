@@ -109,6 +109,29 @@ The **books URL** after merging config is: use the non-empty value from flags / 
 - [Go](https://go.dev/dl/) **1.26.1** or newer (`go` directive in `go.mod`); that is the minimum toolchain version this module is written to compile against. Development builds and `go test` are run on **darwin/arm64** (macOS, Apple Silicon).
 - A valid API key for your chosen books service (when using the default ISBNdb endpoint, an ISBNdb API key).
 
+## Quickstart
+
+Use this when you just want to run it now.
+
+### Web interface (local)
+
+```bash
+export ISBN_AP_KEY="your-key"
+go run . -web
+# Open http://127.0.0.1:8080
+```
+
+Paste ISBNs (one per line) or upload a text file, then click **Look up**.
+
+### CLI with the included `book_list`
+
+```bash
+export ISBN_AP_KEY="your-key"
+go run . -input book_list -output results.json
+```
+
+The JSON result is written to `results.json`.
+
 ## Usage
 
 ### Environment variables
