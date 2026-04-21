@@ -63,7 +63,7 @@ Relative paths in the YAML file (`input`, `output`, `collection`, `status_log`) 
 # Path to the newline-separated ISBN list (relative to this file’s directory)
 input: data/isbn_list.txt
 output: out/results.json
-api_key: your-api-key   # OPTIONAL here; you SHOULD prefer ISBN_AP_KEY in the environment
+api_key: your-api-key   # OPTIONAL here; you SHOULD prefer ISBN_API_KEY in the environment
 batch: 100
 api_url: https://api2.isbndb.com/books
 rate_every: 1s
@@ -77,18 +77,18 @@ status_log: ""
 book_url_template: https://isbndb.com/book/%s
 ```
 
-Omit keys you do not need; boolean **`web`** defaults to `false` when absent. You SHOULD use **`ISBN_AP_KEY`** instead of **`api_key`** in the file when sharing examples or version control, so secrets are not written to disk.
+Omit keys you do not need; boolean **`web`** defaults to `false` when absent. You SHOULD use **`ISBN_API_KEY`** instead of **`api_key`** in the file when sharing examples or version control, so secrets are not written to disk.
 
 ### API key configuration
 
-- **CLI** — Pass **`-key`**, set **`api_key`** in `.isbn_config.yml`, and/or set **`ISBN_AP_KEY`** (see `EnvISBNAPKey` in `env.go`). When both are set, **`ISBN_AP_KEY`** MUST override a key from YAML.
-- **Web UI** — The browser MUST NOT send or receive the API key. Only the server process MAY read **`ISBN_AP_KEY`** from the environment when you start `go run . -web` (or your built binary). There MUST NOT be a key field in the HTML or in the JSON request body. Batch size, rate, collection paths, and **`book_url_template`** still default from `.isbn_config.yml` and **`FANTASTIC_SPOON_*`** variables when the JSON request omits them. The web handler uses the server-configured books URL only (request JSON MUST NOT override it).
+- **CLI** — Pass **`-key`**, set **`api_key`** in `.isbn_config.yml`, and/or set **`ISBN_API_KEY`** (see `EnvISBNAPIKey` in `env.go`). When both are set, **`ISBN_API_KEY`** MUST override a key from YAML.
+- **Web UI** — The browser MUST NOT send or receive the API key. Only the server process MAY read **`ISBN_API_KEY`** from the environment when you start `go run . -web` (or your built binary). There MUST NOT be a key field in the HTML or in the JSON request body. Batch size, rate, collection paths, and **`book_url_template`** still default from `.isbn_config.yml` and **`FANTASTIC_SPOON_*`** variables when the JSON request omits them. The web handler uses the server-configured books URL only (request JSON MUST NOT override it).
 
 ### Code layout
 
 | Piece | Role |
 |-------|------|
-| `env.go` | Declares `EnvISBNAPKey` and `FANTASTIC_SPOON_*` names for env-based overrides. |
+| `env.go` | Declares `EnvISBNAPIKey` and `FANTASTIC_SPOON_*` names for env-based overrides. |
 | `config.go` | Discovers `.isbn_config.yml`, parses YAML, merges env into `AppConfig`, resolves `finalizeBooksURL`. |
 | `main()` | Merges file + env, registers flags (defaults reflect that merge), parses flags, then runs the CLI or web server. |
 | `run()` | CLI: reads `InputFile`, calls **`runLookup`**, writes **`OutputFile`**, prints a completion line to stdout. |
@@ -101,8 +101,8 @@ The **books URL** after merging config is: use the non-empty value from flags / 
 
 ### Policy tests and hooks
 
-- **`policy_secrets_test.go`** — When you run `go test`, tracked files are scanned (via `git ls-files`) for suspicious **`ISBN_AP_KEY=`** / legacy **`ISBNDB_API_KEY=`** assignments and for committed **`.env`** / **`.env.local`** files. Keep real keys out of the repository.
-- **`.githooks/pre-commit`** — Before commit, staged content is scanned for common token patterns, PEM blocks, long `ISBN_AP_KEY=` / `ISBNDB_API_KEY=` lines, and disallowed env filenames (see the hook script for details).
+- **`policy_secrets_test.go`** — When you run `go test`, tracked files are scanned (via `git ls-files`) for suspicious **`ISBN_API_KEY=`** / legacy **`ISBNDB_API_KEY=`** assignments and for committed **`.env`** / **`.env.local`** files. Keep real keys out of the repository.
+- **`.githooks/pre-commit`** — Before commit, staged content is scanned for common token patterns, PEM blocks, long `ISBN_API_KEY=` / `ISBNDB_API_KEY=` lines, and disallowed env filenames (see the hook script for details).
 
 ## Requirements
 
@@ -116,7 +116,7 @@ Use this when you just want to run it now.
 ### Web interface (local)
 
 ```bash
-export ISBN_AP_KEY="your-key"
+export ISBN_API_KEY="your-key"
 go run . -web
 # Open http://127.0.0.1:8080
 ```
@@ -126,7 +126,7 @@ Paste ISBNs (one per line) or upload a text file, then click **Look up**.
 ### CLI with the included `book_list`
 
 ```bash
-export ISBN_AP_KEY="your-key"
+export ISBN_API_KEY="your-key"
 go run . -input book_list -output results.json
 ```
 
@@ -138,7 +138,7 @@ The JSON result is written to `results.json`.
 
 | Variable | Purpose |
 |----------|---------|
-| **`ISBN_AP_KEY`** | Books API credential. Merged from env after YAML; default for **`-key`**; **REQUIRED** in the environment for the **web** server (MUST NOT be entered in the browser). |
+| **`ISBN_API_KEY`** | Books API credential. Merged from env after YAML; default for **`-key`**; **REQUIRED** in the environment for the **web** server (MUST NOT be entered in the browser). |
 | **`ISBNDB_BOOKS_URL`** | Legacy alias for the books POST URL (same tier as **`FANTASTIC_SPOON_API_URL`**). Ignored if **`FANTASTIC_SPOON_API_URL`** is set. |
 | **`FANTASTIC_SPOON_INPUT`** | CLI **`-input`** path. |
 | **`FANTASTIC_SPOON_OUTPUT`** | CLI **`-output`** path. |
@@ -180,13 +180,13 @@ Flag **defaults** reflect `.isbn_config.yml` (if found) plus the environment; a 
 Set the key **only** in the shell environment before starting the server:
 
 ```bash
-export ISBN_AP_KEY="your-key"
+export ISBN_API_KEY="your-key"
 go run . -web
 # Open http://127.0.0.1:8080 — paste ISBNs (one per line) or choose a text file, then **Look up**.
 ```
 
 - **GET /** — Serves the HTML UI (embedded from `web/index.html`).
-- **POST /api/lookup** — JSON body (max ~2 MiB), JSON response. The server MUST NOT use an API key from the JSON body for outbound API calls; extra fields such as `api_key` are ignored by the decoder and MUST NOT override `ISBN_AP_KEY`.
+- **POST /api/lookup** — JSON body (max ~2 MiB), JSON response. The server MUST NOT use an API key from the JSON body for outbound API calls; extra fields such as `api_key` are ignored by the decoder and MUST NOT override `ISBN_API_KEY`.
 
 **Request body (JSON)**
 
@@ -214,21 +214,21 @@ The server binds to **127.0.0.1** by default so it is not exposed on your LAN. I
 
 ```bash
 # RECOMMENDED: put paths, batching, and URL in .isbn_config.yml at the repo root, then only set the key in the environment
-export ISBN_AP_KEY="your-key"
+export ISBN_API_KEY="your-key"
 go run .
 
 # Or pass everything on the command line
-export ISBN_AP_KEY="your-key"
+export ISBN_API_KEY="your-key"
 go run . -input isbns.txt -output out.json
 
-# Env-only (no YAML): set FANTASTIC_SPOON_* and ISBN_AP_KEY, then run the binary with no I/O flags
-export ISBN_AP_KEY="your-key"
+# Env-only (no YAML): set FANTASTIC_SPOON_* and ISBN_API_KEY, then run the binary with no I/O flags
+export ISBN_API_KEY="your-key"
 export FANTASTIC_SPOON_INPUT=isbns.txt
 export FANTASTIC_SPOON_OUTPUT=out.json
 go run .
 
 # Explicit key and batch size (e.g. Pro tier)
-go run . -input isbns.txt -output out.json -key "$ISBN_AP_KEY" -batch 1000 -rate-every 2s
+go run . -input isbns.txt -output out.json -key "$ISBN_API_KEY" -batch 1000 -rate-every 2s
 
 # Merge into a collection and write per-ISBN status log (paths on your machine)
 go run . -input isbns.txt -output out.json -collection ~/books/collection.json -status-log ~/books/last-run.status.log
@@ -270,8 +270,8 @@ git config core.hooksPath .githooks
 
 **Security and privacy.**
 
-- The API key is sent over **HTTPS** to the URL you configure (by default ISBNdb). Treat the key as a **secret**: use **`ISBN_AP_KEY`** in the environment or **`-key`** on the CLI; you MUST NOT commit keys, real `.env` files, or **`.isbn_config.yml`** files that embed **`api_key`**, or long assignments in documentation.
-- The **web UI MUST NOT collect the API key**; configure **`ISBN_AP_KEY` only on the server process** before starting. The server is intended for strict localhost use and rejects non-loopback listen addresses.
+- The API key is sent over **HTTPS** to the URL you configure (by default ISBNdb). Treat the key as a **secret**: use **`ISBN_API_KEY`** in the environment or **`-key`** on the CLI; you MUST NOT commit keys, real `.env` files, or **`.isbn_config.yml`** files that embed **`api_key`**, or long assignments in documentation.
+- The **web UI MUST NOT collect the API key**; configure **`ISBN_API_KEY` only on the server process** before starting. The server is intended for strict localhost use and rejects non-loopback listen addresses.
 - The tool **does not** hash or encrypt keys beyond what TLS provides; operational security (rotation, least privilege, monitoring) is your responsibility.
 - You MUST comply with your **API provider’s terms of use**, quotas, and acceptable use. The program helps with pacing but does not guarantee you will never be rate-limited (`429` responses are treated as errors for that batch).
 - Output JSON MAY contain **bibliographic or personal data** depending on what the API returns—handle files and browser results according to your policies.

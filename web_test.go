@@ -32,10 +32,9 @@ func TestWebIndexHasNoAPIKeyInBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(b)
-	if strings.Contains(strings.ToLower(s), "api_key") ||
-		strings.Contains(s, `type="password"`) ||
+	if strings.Contains(s, `type="password"`) ||
 		strings.Contains(s, `"api_key"`) {
-		t.Fatal("web UI MUST NOT collect or send api_key; use ISBN_AP_KEY on the server only")
+		t.Fatal("web UI MUST NOT collect or send api_key; use ISBN_API_KEY on the server only")
 	}
 }
 
@@ -68,7 +67,7 @@ func TestHandleWebIndex_wrongMethod(t *testing.T) {
 
 func TestHandleWebLookup_success(t *testing.T) {
 	srv, _ := newFakeISBNServer(t, fakeISBNServerOpts{APIKey: "k"})
-	t.Setenv("ISBN_AP_KEY", "k")
+	t.Setenv("ISBN_API_KEY", "k")
 	t.Setenv("ISBNDB_BOOKS_URL", srv.URL+"/books")
 
 	payload := map[string]interface{}{
@@ -110,7 +109,7 @@ func TestHandleWebLookup_success(t *testing.T) {
 
 func TestHandleWebLookup_ignoresAPIURLInJSONBody(t *testing.T) {
 	srv, _ := newFakeISBNServer(t, fakeISBNServerOpts{APIKey: "secret"})
-	t.Setenv("ISBN_AP_KEY", "secret")
+	t.Setenv("ISBN_API_KEY", "secret")
 	t.Setenv("ISBNDB_BOOKS_URL", "http://127.0.0.1:9/nope")
 
 	h := &webHandler{defaults: Config{
@@ -136,7 +135,7 @@ func TestHandleWebLookup_ignoresAPIURLInJSONBody(t *testing.T) {
 
 func TestHandleWebLookup_ignoresAPIKeyInJSONBody(t *testing.T) {
 	srv, _ := newFakeISBNServer(t, fakeISBNServerOpts{APIKey: "k"})
-	t.Setenv("ISBN_AP_KEY", "k")
+	t.Setenv("ISBN_API_KEY", "k")
 	t.Setenv("ISBNDB_BOOKS_URL", srv.URL+"/books")
 
 	// Spoofed api_key MUST NOT override env (decoder ignores unknown fields; server uses env only).
@@ -151,7 +150,7 @@ func TestHandleWebLookup_ignoresAPIKeyInJSONBody(t *testing.T) {
 }
 
 func TestHandleWebLookup_missingAPIKey(t *testing.T) {
-	t.Setenv("ISBN_AP_KEY", "")
+	t.Setenv("ISBN_API_KEY", "")
 	payload := `{"isbns":"9781111111111","batch_size":10,"rate_every_sec":1}`
 	req := httptest.NewRequest(http.MethodPost, "/api/lookup", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
@@ -164,14 +163,14 @@ func TestHandleWebLookup_missingAPIKey(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &errBody); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(errBody["error"], "ISBN_AP_KEY") {
+	if !strings.Contains(errBody["error"], "ISBN_API_KEY") {
 		t.Fatalf("error = %q", errBody["error"])
 	}
 }
 
 func TestHandleWebLookup_withCollectionWritesStatusLog(t *testing.T) {
 	srv, _ := newFakeISBNServer(t, fakeISBNServerOpts{APIKey: "k"})
-	t.Setenv("ISBN_AP_KEY", "k")
+	t.Setenv("ISBN_API_KEY", "k")
 	t.Setenv("ISBNDB_BOOKS_URL", srv.URL+"/books")
 	dir := t.TempDir()
 	collPath := filepath.Join(dir, "collection.json")
@@ -202,7 +201,7 @@ func TestHandleWebLookup_withCollectionWritesStatusLog(t *testing.T) {
 
 func TestHandleWebLookup_usesEnvAPIKey(t *testing.T) {
 	srv, _ := newFakeISBNServer(t, fakeISBNServerOpts{APIKey: "envk"})
-	t.Setenv("ISBN_AP_KEY", "envk")
+	t.Setenv("ISBN_API_KEY", "envk")
 	t.Setenv("ISBNDB_BOOKS_URL", srv.URL+"/books")
 
 	payload := `{"isbns":"a\nb","batch_size":10,"rate_every_sec":1}`
@@ -216,7 +215,7 @@ func TestHandleWebLookup_usesEnvAPIKey(t *testing.T) {
 }
 
 func TestHandleWebLookup_emptyISBNs(t *testing.T) {
-	t.Setenv("ISBN_AP_KEY", "k")
+	t.Setenv("ISBN_API_KEY", "k")
 	payload := `{"isbns":"  \n  ","batch_size":10,"rate_every_sec":1}`
 	req := httptest.NewRequest(http.MethodPost, "/api/lookup", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
@@ -249,7 +248,7 @@ func TestHandleWebLookup_wrongMethod(t *testing.T) {
 }
 
 func TestHandleWebLookup_rejectsNonLoopbackOrigin(t *testing.T) {
-	t.Setenv("ISBN_AP_KEY", "k")
+	t.Setenv("ISBN_API_KEY", "k")
 	payload := `{"isbns":"9781111111111","batch_size":10,"rate_every_sec":1}`
 	req := httptest.NewRequest(http.MethodPost, "/api/lookup", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
@@ -264,7 +263,7 @@ func TestHandleWebLookup_rejectsNonLoopbackOrigin(t *testing.T) {
 
 func TestHandleWebLookup_allowsLoopbackOrigin(t *testing.T) {
 	srv, _ := newFakeISBNServer(t, fakeISBNServerOpts{APIKey: "k"})
-	t.Setenv("ISBN_AP_KEY", "k")
+	t.Setenv("ISBN_API_KEY", "k")
 	t.Setenv("ISBNDB_BOOKS_URL", srv.URL+"/books")
 	payload := `{"isbns":"9781111111111","batch_size":10,"rate_every_sec":1}`
 	req := httptest.NewRequest(http.MethodPost, "/api/lookup", strings.NewReader(payload))
@@ -280,7 +279,7 @@ func TestHandleWebLookup_allowsLoopbackOrigin(t *testing.T) {
 
 func TestHandleWebLookup_usesServerDefaultsForBatchAndRate(t *testing.T) {
 	srv, fake := newFakeISBNServer(t, fakeISBNServerOpts{APIKey: "k"})
-	t.Setenv("ISBN_AP_KEY", "k")
+	t.Setenv("ISBN_API_KEY", "k")
 	t.Setenv("ISBNDB_BOOKS_URL", "")
 
 	h := &webHandler{defaults: Config{

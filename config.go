@@ -181,7 +181,7 @@ func applyEnv(cfg *AppConfig) {
 	if v := strings.TrimSpace(os.Getenv(EnvOutputFile)); v != "" {
 		cfg.OutputFile = v
 	}
-	if v := strings.TrimSpace(os.Getenv(EnvISBNAPKey)); v != "" {
+	if v := strings.TrimSpace(os.Getenv(EnvISBNAPIKey)); v != "" {
 		cfg.APIKey = v
 	}
 	if v := strings.TrimSpace(os.Getenv(EnvBatchSize)); v != "" {

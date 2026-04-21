@@ -97,7 +97,7 @@ func main() {
 	// --- Flags: I/O, credentials, batching, and overrides (defaults from file + env) ---
 	flag.StringVar(&config.InputFile, "input", config.InputFile, "Path to the line-separated ISBN file (REQUIRED unless -web)")
 	flag.StringVar(&config.OutputFile, "output", config.OutputFile, "Output JSON file path")
-	flag.StringVar(&config.APIKey, "key", config.APIKey, "API key (or set "+EnvISBNAPKey+" in the environment)")
+	flag.StringVar(&config.APIKey, "key", config.APIKey, "API key (or set "+EnvISBNAPIKey+" in the environment)")
 	flag.IntVar(&config.BatchSize, "batch", config.BatchSize, "Batch size (Academic: 10, Basic: 100, Pro: 1000)")
 	flag.StringVar(&config.BooksURL, "api-url", config.BooksURL, "Books API POST URL (default: "+EnvBooksURL+", ISBNDB_BOOKS_URL, or production ISBNdb)")
 	flag.DurationVar(&config.RateEvery, "rate-every", config.RateEvery, "Minimum time between API batch requests")

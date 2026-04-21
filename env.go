@@ -1,9 +1,9 @@
 package main
 
-// EnvISBNAPKey is the environment variable name for the books API credential.
+// EnvISBNAPIKey is the environment variable name for the books API credential.
 // The CLI reads it as the default for -key; the web UI reads only this variable
 // (no key in the browser).
-const EnvISBNAPKey = "ISBN_AP_KEY"
+const EnvISBNAPIKey = "ISBN_API_KEY"
 
 // These environment variables MAY override values from .isbn_config.yml when
 // set. CLI flags override both file and environment. Names use a FANTASTIC_SPOON_

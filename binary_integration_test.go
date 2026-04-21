@@ -209,7 +209,7 @@ web: false
 		env = append(env,
 			EnvInputFile+"="+inPath,
 			EnvOutputFile+"="+outPath,
-			EnvISBNAPKey+"=k",
+			EnvISBNAPIKey+"=k",
 			EnvBatchSize+"=10",
 			"ISBNDB_BOOKS_URL="+apiURL,
 			EnvRateEvery+"=1ns",
@@ -255,7 +255,7 @@ func testModuleRoot(t *testing.T) string {
 func envWithoutISBNOverrides(t *testing.T) []string {
 	t.Helper()
 	skip := map[string]struct{}{
-		EnvISBNAPKey:       {},
+		EnvISBNAPIKey:      {},
 		"ISBNDB_BOOKS_URL": {},
 		EnvBooksURL:        {},
 	}

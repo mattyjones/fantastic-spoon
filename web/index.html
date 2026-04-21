@@ -72,7 +72,7 @@
 </head>
 <body>
   <h1>fantastic-spoon</h1>
-  <p class="lead">Paste ISBNs (one per line) or load a text file. The API key is never entered in the browser—set <code>ISBN_AP_KEY</code> in the environment before starting the server.</p>
+  <p class="lead">Paste ISBNs (one per line) or load a text file. The API key is never entered in the browser—set <code>ISBN_API_KEY</code> in the environment before starting the server.</p>
 
   <label for="isbns">ISBNs</label>
   <textarea id="isbns" placeholder="9780123456789&#10;9780987654321"></textarea>
@@ -100,7 +100,7 @@
   <label for="book_url_template">Book URL template (OPTIONAL, one %s for ISBN)</label>
   <input type="text" id="book_url_template" placeholder="https://isbndb.com/book/%s" autocomplete="off" />
 
-  <p class="note">CLI users: pass <code>-key</code> or rely on <code>ISBN_AP_KEY</code>; use <code>-collection</code>, <code>-status-log</code>, <code>-book-url-template</code>.</p>
+  <p class="note">CLI users: pass <code>-key</code> or rely on <code>ISBN_API_KEY</code>; use <code>-collection</code>, <code>-status-log</code>, <code>-book-url-template</code>.</p>
 
   <button type="button" id="run">Look up</button>
   <p id="msg" class="err" hidden></p>

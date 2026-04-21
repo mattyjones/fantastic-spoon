@@ -13,7 +13,7 @@ import (
 // Disallow committing env-var assignments that look like real API keys (length),
 // and the legacy ISBNDB_API_KEY name with values. Short documentation placeholders are allowed.
 var (
-	reISBNAPKeyAssign    = regexp.MustCompile(`ISBN_AP_KEY\s*=\s*['\"]?([^\s#'"\n]+)`)
+	reISBNAPIKeyAssign   = regexp.MustCompile(`ISBN_API_KEY\s*=\s*['\"]?([^\s#'"\n]+)`)
 	reISBNDBAPIKeyAssign = regexp.MustCompile(`ISBNDB_API_KEY\s*=\s*['\"]?([^\s#'"\n]+)`)
 )
 
@@ -31,12 +31,12 @@ func allowedEnvPlaceholder(val string) bool {
 
 func lineViolatesEnvPolicy(line string) (reason string) {
 	line = strings.TrimSpace(line)
-	if strings.Contains(line, `Getenv("ISBN_AP_KEY")`) || strings.Contains(line, `Getenv(EnvISBNAPKey)`) {
+	if strings.Contains(line, `Getenv("ISBN_API_KEY")`) || strings.Contains(line, `Getenv(EnvISBNAPIKey)`) {
 		return ""
 	}
-	if m := reISBNAPKeyAssign.FindStringSubmatch(line); len(m) == 2 {
+	if m := reISBNAPIKeyAssign.FindStringSubmatch(line); len(m) == 2 {
 		if !allowedEnvPlaceholder(m[1]) {
-			return "ISBN_AP_KEY assignment looks like a real secret (use a short placeholder in docs, or rely on env at runtime)"
+			return "ISBN_API_KEY assignment looks like a real secret (use a short placeholder in docs, or rely on env at runtime)"
 		}
 	}
 	if m := reISBNDBAPIKeyAssign.FindStringSubmatch(line); len(m) == 2 {
@@ -63,7 +63,7 @@ func TestTrackedFilesNoSuspiciousAPIKeyAssignments(t *testing.T) {
 		base := filepath.Base(path)
 		switch base {
 		case ".env", ".env.local", ".env.production", ".env.development":
-			t.Errorf("%s: do not commit environment files with secrets; use .env.example and document ISBN_AP_KEY in README", path)
+			t.Errorf("%s: do not commit environment files with secrets; use .env.example and document ISBN_API_KEY in README", path)
 			continue
 		}
 		switch filepath.Ext(path) {
