@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+# Git pre-commit: block secrets, formatting, module integrity, vet, build, tests, linters.
+#
+# Enable this repo's hooks (one-time per clone):
+#   git config core.hooksPath .githooks
+#
+set -uo pipefail
+IFS=$'\n\t'
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "pre-commit: error: not inside a git repository" >&2
+  exit 1
+}
+cd "$ROOT" || exit 1
+
+FAILED=0
+REPORT=()
+
+append_report() {
+  REPORT+=("$1")
+}
+
+run_check() {
+  local title="$1"
+  shift
+  local output
+  if output="$("$@" 2>&1)"; then
+    echo "  [ok] ${title}"
+  else
+    echo "  [FAIL] ${title}" >&2
+    FAILED=1
+    append_report "--- ${title} ---"
+    append_report "${output}"
+    append_report ""
+  fi
+}
+
+# --- Staged content: common credential / API key shapes (git index only) ---
+# Scans what you are about to commit, not the whole working tree. Patterns
+# target known service prefixes and PEM blocks. Only .githooks/pre-commit is
+# excluded so regex literals in this file do not match themselves; other paths
+# under .githooks/ are still scanned.
+scan_staged_for_secrets() {
+  if git diff --cached --quiet; then
+    echo "  [skip] secret scan (no staged changes)"
+    return 0
+  fi
+
+  local out
+  local found=0
+
+  # High-signal tokens (AWS key id, GitHub PATs, Stripe live keys, Slack, Google API-style).
+  local tokens_ere='AKIA[0-9A-Z]{16}|(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{20,}|sk_live_[0-9a-zA-Z]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35}'
+  if out=$(git grep --cached -nE "${tokens_ere}" -- . ':(exclude).githooks/pre-commit' 2>/dev/null); then
+    found=1
+    append_report "--- possible secrets (service token / API key patterns) ---"
+    append_report "${out}"
+    append_report ""
+  fi
+
+  # PEM private keys (-e avoids git grep treating leading '-' as an option).
+  if out=$(git grep --cached -nE -e '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' -- . ':(exclude).githooks/pre-commit' 2>/dev/null); then
+    found=1
+    append_report "--- possible secrets (PEM private key block) ---"
+    append_report "${out}"
+    append_report ""
+  fi
+
+  # Long Go string literals for APIKey (tests often use short placeholders like \"k\").
+  if out=$(git grep --cached -nE 'APIKey:\s*"[a-zA-Z0-9]{32,}"' -- '*.go' ':(exclude)*_test.go' ':(exclude).githooks/pre-commit' 2>/dev/null); then
+    found=1
+    append_report "--- possible secrets (long APIKey string in non-test .go file) ---"
+    append_report "${out}"
+    append_report ""
+  fi
+
+  # ISBN_API_KEY / ISBNDB_API_KEY assignments that look like real secrets (not short placeholders).
+  if out=$(git grep --cached -nE 'ISBN_API_KEY=[^#[:space:]]{16,}' -- . ':(exclude).githooks/pre-commit' 2>/dev/null); then
+    found=1
+    append_report "--- possible secret: long ISBN_API_KEY= value in staged file ---"
+    append_report "${out}"
+    append_report ""
+  fi
+  if out=$(git grep --cached -nE 'ISBNDB_API_KEY=[^#[:space:]]{16,}' -- . ':(exclude).githooks/pre-commit' 2>/dev/null); then
+    found=1
+    append_report "--- possible secret: long ISBNDB_API_KEY= value (legacy env name) ---"
+    append_report "${out}"
+    append_report ""
+  fi
+
+  # Block committing typical environment files (keep secrets out of git).
+  while IFS= read -r f; do
+    [[ -z "${f}" ]] && continue
+    base="${f##*/}"
+    if [[ "${base}" == .env || "${base}" == .env.local ]]; then
+      found=1
+      append_report "--- do not commit ${f} (use .env.example; configure ISBN_API_KEY at runtime) ---"
+    fi
+  done < <(git diff --cached --name-only --diff-filter=ACM)
+
+  if [[ "${found}" -ne 0 ]]; then
+    echo "  [FAIL] staged content matched secret patterns" >&2
+    FAILED=1
+    return 1
+  fi
+  echo "  [ok] secret scan (staged)"
+  return 0
+}
+
+echo "pre-commit: running checks in ${ROOT}"
+
+scan_staged_for_secrets
+if [[ "${FAILED}" -ne 0 ]]; then
+  {
+    echo ""
+    echo "================================================================"
+    echo "PRE-COMMIT BLOCKED: possible secrets in staged files."
+    echo "Remove or redact credentials, then commit again."
+    echo "================================================================"
+    printf '%s\n' "${REPORT[@]}"
+  } >&2
+  exit 1
+fi
+
+# 1) Formatting (must be clean before other tools)
+UNFMT="$(gofmt -l . 2>&1 || true)"
+if [[ -n "${UNFMT}" ]]; then
+  echo "  [FAIL] gofmt (files need formatting)" >&2
+  FAILED=1
+  append_report "--- gofmt ---"
+  append_report "These files are not gofmt-clean. Run: gofmt -w ."
+  append_report "${UNFMT}"
+  append_report ""
+else
+  echo "  [ok] gofmt"
+fi
+
+# 2) Module checksums
+run_check "go mod verify" go mod verify
+
+# 3) Vet + build + tests
+run_check "go vet ./..." go vet ./...
+run_check "go build ./..." go build ./...
+run_check "go test ./..." go test ./... -count=1
+
+# 4) golangci-lint when installed (optional but recommended)
+if command -v golangci-lint >/dev/null 2>&1; then
+  run_check "golangci-lint" golangci-lint run ./...
+else
+  echo "  [skip] golangci-lint (install from https://golangci-lint.run/ for stricter linting)"
+fi
+
+if [[ "${FAILED}" -ne 0 ]]; then
+  {
+    echo ""
+    echo "================================================================"
+    echo "PRE-COMMIT BLOCKED: one or more checks failed."
+    echo "Review the output below, fix the issues, then commit again."
+    echo "================================================================"
+    printf '%s\n' "${REPORT[@]}"
+  } >&2
+  exit 1
+fi
+
+echo "pre-commit: all checks passed."
+exit 0
