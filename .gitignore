@@ -22,3 +22,7 @@ go.work.sum
 coverage.out
 coverage.html
 *.cover
+
+# --- Generic ---
+book_list
+results.json
